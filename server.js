@@ -31,12 +31,12 @@ app.get('/api/news', async (req, res) => {
     console.log(`Fetching news - Frontend: "${category}" → NewsAPI: "${newsApiCategory}"`);
     
     const response = await axios.get('https://newsapi.org/v2/top-headlines', {
-      params: {
-        country: 'us',
-        category: newsApiCategory,
-        pageSize: 30, // Increased to account for filtering
-        apiKey: process.env.NEWS_API_KEY
-      }
+  params: {
+    category: newsApiCategory,
+    pageSize: 30,
+    language: 'en',
+    apiKey: process.env.NEWS_API_KEY
+  }
     });
 
     console.log(`NewsAPI response: ${response.data.articles.length} articles for ${category}`);
