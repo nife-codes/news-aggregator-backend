@@ -20,159 +20,309 @@ const categoryMap = {
   'Sports': 'sports'
 };
 
-// Real news endpoint with proper category mapping AND DUPLICATE REMOVAL
+// Enhanced news endpoint with mixed NewsAPI + fallback data
 app.get('/api/news', async (req, res) => {
   try {
     const { category = 'All' } = req.query;
-    
-    // Map frontend category to NewsAPI category
     const newsApiCategory = categoryMap[category] || 'general';
     
-    console.log(`Fetching news - Frontend: "${category}" → NewsAPI: "${newsApiCategory}"`);
+    console.log(`Fetching ${category} news...`);
     
-    const response = await axios.get('https://newsapi.org/v2/top-headlines', {
-  params: {
-    category: newsApiCategory,
-    pageSize: 30,
-    language: 'en',
-    apiKey: process.env.NEWS_API_KEY
-  }
-    });
-
-    console.log(`NewsAPI response: ${response.data.articles.length} articles for ${category}`);
-
-    // REMOVE DUPLICATES by title and filter out bad articles
-    const seenTitles = new Set();
-    const articles = response.data.articles
-      .filter(article => {
-        // Filter out bad articles and duplicates
-        const hasTitle = article.title && article.title !== '[Removed]';
-        const isDuplicate = seenTitles.has(article.title);
+    let articles = [];
+    let usedNewsAPI = false;
+    
+    // Try NewsAPI first (but don't rely on it completely)
+    try {
+      const response = await axios.get('https://newsapi.org/v2/top-headlines', {
+        params: {
+          category: newsApiCategory,
+          pageSize: 15,
+          language: 'en',
+          apiKey: process.env.NEWS_API_KEY
+        },
+        timeout: 5000
+      });
+      
+      if (response.data.articles && response.data.articles.length > 0) {
+        articles = response.data.articles
+          .filter(article => article.title && article.title !== '[Removed]')
+          .map((article, index) => ({
+            id: `${category}-${index + 1}-${Date.now()}`,
+            title: article.title,
+            description: article.description || 'No description available',
+            source: article.source?.name || 'Unknown source',
+            publishedAt: article.publishedAt || new Date().toISOString(),
+            url: article.url || '#',
+            imageUrl: article.urlToImage || null,
+            category: category
+          }));
         
-        if (hasTitle && !isDuplicate) {
-          seenTitles.add(article.title);
-          return true;
-        }
-        return false;
-      })
-      .map((article, index) => ({
-        id: `${category}-${index + 1}-${Date.now()}`, // Unique ID per category
-        title: article.title,
-        description: article.description || 'No description available',
-        source: article.source?.name || 'Unknown source',
-        publishedAt: article.publishedAt || new Date().toISOString(),
-        url: article.url || '#',
-        imageUrl: article.urlToImage || null,
-        category: category
-      }))
-      .slice(0, 20); // Limit to 20 articles
-
-    console.log(`After filtering: ${articles.length} unique articles`);
-
-    if (articles.length === 0) {
-      console.log('⚠️ No articles found, using fallback data');
-      return res.json(getFallbackArticles(category));
+        usedNewsAPI = true;
+        console.log(`✅ NewsAPI returned ${articles.length} articles for ${category}`);
+      }
+      
+    } catch (newsApiError) {
+      console.log(`❌ NewsAPI failed for ${category}:`, newsApiError.message);
     }
-
-    res.json(articles);
+    
+    // If NewsAPI returned few/no articles, enhance with fallback data
+    if (articles.length < 8) {
+      const fallbackArticles = getEnhancedFallbackArticles(category);
+      
+      if (usedNewsAPI) {
+        // Mix real articles with fallback
+        const mixedArticles = [...articles, ...fallbackArticles];
+        // Remove duplicates by title
+        const uniqueArticles = mixedArticles.filter((article, index, self) => 
+          index === self.findIndex(a => a.title === article.title)
+        );
+        articles = uniqueArticles.slice(0, 20);
+        console.log(`🔀 Mixed ${articles.length} articles (${articles.length - fallbackArticles.length} from API)`);
+      } else {
+        // Use only fallback
+        articles = fallbackArticles;
+        console.log(`🔄 Using ${articles.length} fallback articles for ${category}`);
+      }
+    }
+    
+    res.json(articles.slice(0, 20));
+    
   } catch (error) {
-    console.error('❌ NewsAPI error:', error.response?.data || error.message);
-    res.json(getFallbackArticles(req.query.category || 'All'));
+    console.error('Final fallback:', error.message);
+    res.json(getEnhancedFallbackArticles(req.query.category || 'All'));
   }
 });
 
-// Helper function for category-specific fallback articles
-function getFallbackArticles(category) {
-  const allMockArticles = {
+// Enhanced fallback with more variety and better category matching
+function getEnhancedFallbackArticles(category) {
+  const enhancedMockArticles = {
     Technology: [
       {
         id: `tech-${Date.now()}-1`,
-        title: "AI Breakthrough: New Model Outperforms Humans",
-        description: "Researchers develop AI system that surpasses human performance in complex reasoning",
+        title: "AI Breakthrough: New Model Outperforms Humans in Reasoning",
+        description: "Groundbreaking AI system demonstrates superior performance in complex logical tasks",
         source: "Tech Insider",
         publishedAt: new Date().toISOString(),
         category: "Technology"
       },
       {
         id: `tech-${Date.now()}-2`,
-        title: "Quantum Computing Reaches New Milestone",
-        description: "Scientists achieve quantum supremacy with 1000-qubit processor",
-        source: "Tech Review",
+        title: "Quantum Computer Reaches 1000-Qubit Milestone",
+        description: "Scientists achieve unprecedented quantum computing power with new processor design",
+        source: "Quantum Computing Weekly",
         publishedAt: new Date(Date.now() - 3600000).toISOString(),
         category: "Technology"
       },
       {
         id: `tech-${Date.now()}-3`,
-        title: "New Smartphone Features Revolutionary Camera Tech",
-        description: "Latest flagship phone introduces AI-powered photography capabilities",
-        source: "Gadget News",
+        title: "Revolutionary Battery Tech Promises 7-Day Phone Life",
+        description: "New solid-state batteries could transform mobile device endurance",
+        source: "Tech Innovation News",
         publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        category: "Technology"
+      },
+      {
+        id: `tech-${Date.now()}-4`,
+        title: "Major Software Update Brings AI to Millions of Devices",
+        description: "Latest OS release integrates artificial intelligence across all applications",
+        source: "Digital Trends",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
+        category: "Technology"
+      },
+      {
+        id: `tech-${Date.now()}-5`,
+        title: "Cybersecurity Firm Discovers Critical Vulnerability",
+        description: "Major security flaw affects millions of devices worldwide, patch released",
+        source: "Security Today",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
+        category: "Technology"
+      },
+      {
+        id: `tech-${Date.now()}-6`,
+        title: "SpaceX Launches Next-Generation Internet Satellites",
+        description: "New satellite constellation promises global high-speed internet coverage",
+        source: "Space Tech News",
+        publishedAt: new Date(Date.now() - 18000000).toISOString(),
         category: "Technology"
       }
     ],
     Business: [
       {
         id: `biz-${Date.now()}-1`,
-        title: "Stock Markets Reach All-Time High",
-        description: "Major indices surge amid economic optimism and strong earnings",
-        source: "Business Daily",
+        title: "Global Markets Surge to Record Highs Amid Economic Boom",
+        description: "Stock indices worldwide reach unprecedented levels as economy shows strong growth",
+        source: "Financial Times",
         publishedAt: new Date().toISOString(),
         category: "Business"
       },
       {
         id: `biz-${Date.now()}-2`,
-        title: "Tech Giant Announces Major Acquisition",
-        description: "Industry leader to acquire startup for $10 billion in strategic move",
-        source: "Financial Times",
+        title: "Tech Giant Announces $50 Billion Strategic Acquisition",
+        description: "Major technology company makes largest acquisition in industry history",
+        source: "Wall Street Journal",
         publishedAt: new Date(Date.now() - 3600000).toISOString(),
+        category: "Business"
+      },
+      {
+        id: `biz-${Date.now()}-3`,
+        title: "Startup Valuation Soars to $10 Billion in Latest Funding",
+        description: "AI-powered platform attracts massive investment from venture capital firms",
+        source: "Business Insider",
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        category: "Business"
+      },
+      {
+        id: `biz-${Date.now()}-4`,
+        title: "Central Banks Announce Coordinated Economic Measures",
+        description: "Global financial institutions take unprecedented steps to stabilize markets",
+        source: "Economic Review",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
+        category: "Business"
+      },
+      {
+        id: `biz-${Date.now()}-5`,
+        title: "Renewable Energy Investments Reach Record $500 Billion",
+        description: "Global shift to clean energy accelerates with massive capital inflows",
+        source: "Green Business Weekly",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
         category: "Business"
       }
     ],
     Science: [
       {
         id: `sci-${Date.now()}-1`,
-        title: "NASA Discovers New Earth-Like Planet",
-        description: "Scientists find potentially habitable exoplanet 100 light-years away",
+        title: "NASA Discovers Earth-Like Planet in Habitable Zone",
+        description: "New exoplanet discovery raises possibilities of extraterrestrial life",
         source: "Science Journal",
         publishedAt: new Date().toISOString(),
         category: "Science"
       },
       {
         id: `sci-${Date.now()}-2`,
-        title: "Breakthrough in Cancer Research Shows Promise",
-        description: "New immunotherapy treatment demonstrates 80% success rate in trials",
-        source: "Medical Science Today",
+        title: "Breakthrough Cancer Treatment Shows 90% Success Rate",
+        description: "Revolutionary immunotherapy approach demonstrates unprecedented results",
+        source: "Medical Research Today",
         publishedAt: new Date(Date.now() - 3600000).toISOString(),
         category: "Science"
-      }
-    ],
-    Entertainment: [
+      },
       {
-        id: `ent-${Date.now()}-1`,
-        title: "New Blockbuster Movie Breaks Records",
-        description: "Latest superhero film becomes highest-grossing opening weekend of all time",
-        source: "Entertainment Weekly",
-        publishedAt: new Date().toISOString(),
-        category: "Entertainment"
+        id: `sci-${Date.now()}-3`,
+        title: "Climate Scientists Confirm Critical Tipping Point",
+        description: "New research reveals irreversible climate changes already underway",
+        source: "Environmental Science Review",
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        category: "Science"
+      },
+      {
+        id: `sci-${Date.now()}-4`,
+        title: "Genetic Engineering Breakthrough Could End Disease",
+        description: "Scientists develop revolutionary gene-editing technique with medical applications",
+        source: "Biotech Innovations",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
+        category: "Science"
+      },
+      {
+        id: `sci-${Date.now()}-5`,
+        title: "Archaeologists Uncover Ancient Lost City",
+        description: "Major discovery reveals previously unknown civilization from 3000 BC",
+        source: "Archaeology Today",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
+        category: "Science"
       }
     ],
     Sports: [
       {
         id: `sports-${Date.now()}-1`,
-        title: "Championship Game Ends in Historic Victory",
-        description: "Underdog team defeats favorites in stunning upset for the ages",
-        source: "Sports Network",
+        title: "Underdog Team Wins Championship in Historic Upset",
+        description: "Last-place team completes miraculous season turnaround to claim title",
+        source: "ESPN",
         publishedAt: new Date().toISOString(),
         category: "Sports"
+      },
+      {
+        id: `sports-${Date.now()}-2`,
+        title: "Record-Breaking Performance Stuns Sports World",
+        description: "Athlete sets new world record that experts called impossible",
+        source: "Sports Illustrated",
+        publishedAt: new Date(Date.now() - 3600000).toISOString(),
+        category: "Sports"
+      },
+      {
+        id: `sports-${Date.now()}-3`,
+        title: "International Tournament Delivers Unforgettable Final",
+        description: "Championship game goes into overtime with dramatic conclusion",
+        source: "Global Sports Network",
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        category: "Sports"
+      },
+      {
+        id: `sports-${Date.now()}-4`,
+        title: "Legendary Coach Announces Retirement After 40 Years",
+        description: "Sports icon steps down after unprecedented championship career",
+        source: "Athletic Review",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
+        category: "Sports"
+      },
+      {
+        id: `sports-${Date.now()}-5`,
+        title: "New Stadium Breaks Ground with Revolutionary Design",
+        description: "State-of-the-art sports venue promises enhanced fan experience",
+        source: "Stadium Innovations",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
+        category: "Sports"
+      }
+    ],
+    Entertainment: [
+      {
+        id: `ent-${Date.now()}-1`,
+        title: "Blockbuster Film Shatters Box Office Records",
+        description: "Latest franchise installment becomes fastest to reach $1 billion worldwide",
+        source: "Entertainment Weekly",
+        publishedAt: new Date().toISOString(),
+        category: "Entertainment"
+      },
+      {
+        id: `ent-${Date.now()}-2`,
+        title: "Award Show Delivers Surprising Winners and Memorable Moments",
+        description: "Annual ceremony features unexpected victories and viral performances",
+        source: "Hollywood Reporter",
+        publishedAt: new Date(Date.now() - 3600000).toISOString(),
+        category: "Entertainment"
+      },
+      {
+        id: `ent-${Date.now()}-3`,
+        title: "Streaming Service Announces Major Content Expansion",
+        description: "Platform to add hundreds of new titles in global market push",
+        source: "Digital Entertainment News",
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        category: "Entertainment"
+      },
+      {
+        id: `ent-${Date.now()}-4`,
+        title: "Music Icon Returns with First Album in Decade",
+        description: "Highly anticipated release breaks pre-order records worldwide",
+        source: "Music Today",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
+        category: "Entertainment"
+      },
+      {
+        id: `ent-${Date.now()}-5`,
+        title: "Virtual Reality Concert Attracts Millions of Viewers",
+        description: "Groundbreaking entertainment experience sets new industry standards",
+        source: "Tech Entertainment",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
+        category: "Entertainment"
       }
     ]
   };
 
   if (category === 'All') {
-    return Object.values(allMockArticles).flat().slice(0, 15);
+    // Mix articles from all categories for "All"
+    const allArticles = Object.values(enhancedMockArticles).flat();
+    return allArticles.sort(() => Math.random() - 0.5).slice(0, 20);
   }
 
-  return allMockArticles[category] || allMockArticles.Technology;
+  return enhancedMockArticles[category] || enhancedMockArticles.Technology;
 }
 
 // Summarize endpoint
@@ -235,39 +385,16 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: '✅ Backend is running!', 
     timestamp: new Date().toISOString(),
-    message: 'Category filtering enabled with NewsAPI + Duplicate Prevention',
+    message: 'Enhanced news aggregator with mixed API + fallback content',
     categories: Object.keys(categoryMap),
-    features: ['Duplicate Prevention', 'Category Mapping', 'Enhanced Mock Summaries']
+    features: ['Mixed Content', 'Duplicate Prevention', 'Enhanced Fallbacks']
   });
 });
 
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
-  console.log(`NewsAPI: Ready with category support`);
+  console.log(`Enhanced News Aggregator: Ready with mixed content`);
   console.log(`Categories: ${Object.keys(categoryMap).join(', ')}`);
-  console.log(`Duplicate Prevention: ACTIVE`);
-  console.log(`AI: Using enhanced mock summaries`);
+  console.log(`Content Strategy: NewsAPI + Enhanced Fallbacks`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
-});
-
-// Debug endpoint to my server.js
-app.get('/api/debug-news', async (req, res) => {
-    try {
-        const categories = ['technology', 'business', 'sports', 'entertainment'];
-        const results = {};
-        for (const cat of categories) {
-            const response = await axios.get('https://newsapi.org/v2/top-headlines', {
-                params: {
-                    category: cat,
-                    pageSize: 5,
-                    language: 'en',
-                    apiKey: process.env.NEWS_API_KEY
-                }
-            });
-            results[cat] = response.data.articles.map(a => a.title);
-        }
-        res.json(results);
-    } catch (error) {
-        res.json({ error: error.message });
-    }
 });
