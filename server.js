@@ -249,3 +249,25 @@ app.listen(PORT, () => {
   console.log(`AI: Using enhanced mock summaries`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
 });
+
+// Debug endpoint to my server.js
+app.get('/api/debug-news', async (req, res) => {
+    try {
+        const categories = ['technology', 'business', 'sports', 'entertainment'];
+        const results = {};
+        for (const cat of categories) {
+            const response = await axios.get('https://newsapi.org/v2/top-headlines', {
+                params: {
+                    category: cat,
+                    pageSize: 5,
+                    language: 'en',
+                    apiKey: process.env.NEWS_API_KEY
+                }
+            });
+            results[cat] = response.data.articles.map(a => a.title);
+        }
+        res.json(results);
+    } catch (error) {
+        res.json({ error: error.message });
+    }
+});
